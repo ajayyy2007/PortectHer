@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLARE - Live Emergency Tracking</title>
+    <!-- Google Fonts & Font Awesome Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS for maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            background: #0f172a;
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .header {
+            background: rgba(15, 23, 42, 0.95);
+            border-bottom: 2px solid #ef4444;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+        }
+        .logo-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-box i {
+            color: #ef4444;
+            font-size: 1.5rem;
+        }
+        .logo-box h2 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+        .status-pill {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-active {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 1px solid #ef4444;
+        }
+        .status-resolved {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid #10b981;
+        }
+        #tracking-map {
+            flex: 1;
+            width: 100%;
+            height: calc(100vh - 160px);
+            z-index: 1;
+        }
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            max-width: 500px;
+            margin: 0 auto;
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 14px;
+            padding: 16px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.88rem;
+        }
+        .info-label {
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        .info-value {
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .action-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .btn-action {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .btn-call {
+            background: #ef4444;
+            color: #ffffff;
+        }
+        .btn-directions {
+            background: #3b82f6;
+            color: #ffffff;
+        }
+        .pulse-marker {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #ef4444;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 20px #ef4444;
+            animation: pulse 1.2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-box">
+            <i class="fa-solid fa-shield-halved"></i>
+            <div>
+                <h2>FLARE LIVE TRACKING</h2>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Women Safety Emergency Network</div>
+            </div>
+        </div>
+        <div id="status-badge" class="status-pill status-active">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+            LIVE TRACKING ACTIVE
+        </div>
+    </div>
+
+    <div id="tracking-map"></div>
+
+    <div class="info-panel">
+        <div class="info-row">
+            <span class="info-label">Protected User:</span>
+            <span class="info-value" id="user-name">Loading user...</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Emergency Ref ID:</span>
+            <span class="info-value" id="emergency-id" style="font-family: monospace;">---</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Last Position:</span>
+            <span class="info-value" id="coords-text">Locating GPS...</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">GPS Accuracy:</span>
+            <span class="info-value" id="accuracy-text">---</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Last Updated:</span>
+            <span class="info-value" id="updated-time">Checking for updates...</span>
+        </div>
+
+        <div class="action-row">
+            <a id="btn-call-user" href="#" class="btn-action btn-call">
+                <i class="fa-solid fa-phone"></i> Call User
+            </a>
+            <a id="btn-get-directions" href="#" target="_blank" class="btn-action btn-directions">
+                <i class="fa-solid fa-diamond-turn-right"></i> Navigate
+            </a>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const emergencyId = urlParams.get('id') || urlParams.get('alertId');
+
+        let trackMap = null;
+        let victimMarker = null;
+        let accuracyCircle = null;
+        let pathPolyline = null;
+        let pathCoords = [];
+
+        function initTrackingMap(lat = 13.0827, lng = 80.2707) {
+            trackMap = L.map('tracking-map', { zoomControl: true }).setView([lat, lng], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(trackMap);
+
+            const victimIcon = L.divIcon({
+                className: 'pulse-marker-wrapper',
+                html: '<div class="pulse-marker"></div>',
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            });
+
+            victimMarker = L.marker([lat, lng], { icon: victimIcon }).addTo(trackMap);
+            pathPolyline = L.polyline([], { color: '#ef4444', weight: 4, opacity: 0.8 }).addTo(trackMap);
+        }
+
+        async function fetchLiveLocation() {
+            if (!emergencyId) {
+                document.getElementById('coords-text').textContent = 'No Emergency ID provided.';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/sos/track/${emergencyId}`);
+                if (!res.ok) throw new Error('Tracking session not found or expired');
+                const data = await res.json();
+
+                document.getElementById('user-name').textContent = data.user?.name || 'Protected User';
+                document.getElementById('emergency-id').textContent = data.emergencyId;
+
+                const callBtn = document.getElementById('btn-call-user');
+                if (data.user?.phone && data.user.phone !== 'Confidential') {
+                    callBtn.href = `tel:${data.user.phone}`;
+                    callBtn.innerHTML = `<i class="fa-solid fa-phone"></i> Call (${data.user.phone})`;
+                } else {
+                    callBtn.style.display = 'none';
+                }
+
+                const statusBadge = document.getElementById('status-badge');
+                if (!data.active || data.status === 'RESOLVED') {
+                    statusBadge.className = 'status-pill status-resolved';
+                    statusBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> EMERGENCY RESOLVED';
+                } else {
+                    statusBadge.className = 'status-pill status-active';
+                    statusBadge.innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span> LIVE TRACKING ACTIVE';
+                }
+
+                if (data.latitude && data.longitude) {
+                    const lat = Number(data.latitude);
+                    const lng = Number(data.longitude);
+
+                    document.getElementById('coords-text').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                    document.getElementById('accuracy-text').textContent = data.accuracy ? `±${Math.round(data.accuracy)} meters` : 'Standard GPS';
+                    document.getElementById('updated-time').textContent = new Date().toLocaleTimeString();
+
+                    const dirBtn = document.getElementById('btn-get-directions');
+                    dirBtn.href = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+                    if (!trackMap) {
+                        initTrackingMap(lat, lng);
+                    } else {
+                        victimMarker.setLatLng([lat, lng]);
+                        trackMap.panTo([lat, lng]);
+                    }
+
+                    if (data.accuracy) {
+                        if (accuracyCircle) trackMap.removeLayer(accuracyCircle);
+                        accuracyCircle = L.circle([lat, lng], {
+                            radius: data.accuracy,
+                            color: '#ef4444',
+                            fillColor: '#ef4444',
+                            fillOpacity: 0.15
+                        }).addTo(trackMap);
+                    }
+
+                    pathCoords.push([lat, lng]);
+                    if (pathPolyline) {
+                        pathPolyline.setLatLngs(pathCoords);
+                    }
+                } else {
+                    document.getElementById('coords-text').textContent = 'Coordinates currently unavailable';
+                }
+
+            } catch (err) {
+                document.getElementById('coords-text').textContent = err.message;
+            }
+        }
+
+        fetchLiveLocation();
+        setInterval(fetchLiveLocation, 6000);
+    </script>
+</body>
+</html>

@@ -18,6 +18,17 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    countryCode: {
+        type: String,
+        default: '+91'
+    },
+    mobileVerified: {
+        type: Boolean,
+        default: false
+    },
+    mobileVerifiedAt: {
+        type: Date
+    },
     createdAt: {
         type: Date,
         default: Date.now

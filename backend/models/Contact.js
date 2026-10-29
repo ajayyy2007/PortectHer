@@ -8,19 +8,46 @@ const contactSchema = new mongoose.Schema({
     },
     name: {
         type: String,
-        required: true
+        required: true,
+        trim: true
     },
     phone: {
         type: String,
-        required: true
+        required: true,
+        trim: true
+    },
+    countryCode: {
+        type: String,
+        default: '+91',
+        trim: true
     },
     email: {
-        type: String, // Optional, but good if we want to email them too
-        required: true
+        type: String,
+        required: true,
+        trim: true,
+        lowercase: true
     },
     relation: {
         type: String,
         default: 'Emergency Contact'
+    },
+    whatsappEnabled: {
+        type: Boolean,
+        default: true
+    },
+    smsEnabled: {
+        type: Boolean,
+        default: true
+    },
+    emailEnabled: {
+        type: Boolean,
+        default: true
+    },
+    lastSmsSentAt: {
+        type: Date
+    },
+    lastSmsStatus: {
+        type: String
     },
     createdAt: {
         type: Date,

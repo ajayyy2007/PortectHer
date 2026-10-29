@@ -1,4 +1,4 @@
-# DefendHer - Women Safety Web Application
+# FLARE - Women Safety Web Application
 
 A complete, feature-rich Women Safety Web Application built using entirely free technologies. This application allows users to quickly trigger an SOS, automatically send their live location via email to saved emergency contacts, view nearby safe zones, trigger a fake call, and actively participate in a community alert system.
 
