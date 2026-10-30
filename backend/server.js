@@ -1,5 +1,12 @@
+
 const path = require('path');
+const dns = require('dns');
+
+// Configure DNS for MongoDB Atlas SRV lookups
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -18,20 +25,24 @@ const { verifyWhatsAppConfig } = require('./services/whatsappService');
 
 const app = express();
 
-// Security Headers Middleware (Allow inline scripts & external map tile resources)
-app.use(helmet({
-    contentSecurityPolicy: false,
-    crossOriginResourcePolicy: false
-}));
+// Security Headers Middleware
+app.use(
+    helmet({
+        contentSecurityPolicy: false,
+        crossOriginResourcePolicy: false
+    })
+);
 
 // CORS Configuration
 app.use(cors());
 
 // Rate Limiting Middleware for Auth Routes
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
-    message: { msg: 'Too many requests from this IP, please try again after 15 minutes.' }
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    message: {
+        msg: 'Too many requests from this IP, please try again after 15 minutes.'
+    }
 });
 
 app.use('/api/auth/send-otp', authLimiter);
@@ -65,7 +76,10 @@ app.get('/api/diagnostics', async (req, res) => {
 
         res.json({
             status: 'Online',
-            database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+            database:
+                mongoose.connection.readyState === 1
+                    ? 'Connected'
+                    : 'Disconnected',
             services: {
                 email: emailDiag,
                 sms: smsDiag,
@@ -88,37 +102,80 @@ app.get('/api/status', (req, res) => {
     });
 });
 
-// Database Connection and Server Startup (when executed directly)
+// Database Connection and Server Startup
 if (require.main === module) {
-    mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/womensafety')
-    .then(async () => {
-        console.log('✅ MongoDB connected successfully');
+    const mongoURI =
+        process.env.MONGODB_URI ||
+        'mongodb://localhost:27017/womensafety';
 
-        // Run service startup diagnostics
-        try {
-            const [emailDiag, smsDiag, waDiag] = await Promise.all([
-                verifyEmailConfig(),
-                verifySMSConfig(),
-                verifyWhatsAppConfig()
-            ]);
+    mongoose
+        .connect(mongoURI, {
+            serverSelectionTimeoutMS: 15000
+        })
+        .then(async () => {
+            console.log('✅ MongoDB connected successfully');
+            console.log('Database name:', mongoose.connection.name);
+            console.log('Users collection:', mongoose.connection.collection('users').collectionName);
+            try {
+                const [emailDiag, smsDiag, waDiag] = await Promise.all([
+                    verifyEmailConfig(),
+                    verifySMSConfig(),
+                    verifyWhatsAppConfig()
+                ]);
 
-            console.log(`\n================== FLARE SERVICE DIAGNOSTICS ==================`);
-            console.log(`📧 Email Service : [ ${emailDiag.configured ? (emailDiag.verified ? 'Verified (Gmail SMTP)' : 'Configured (Auth Check Failed)') : 'Not Configured'} ]`);
-            console.log(`📱 SMS Service   : [ ${smsDiag.configured ? smsDiag.providers.join(', ') : 'Not Configured'} ]`);
-            console.log(`📲 WhatsApp Mode : [ ${waDiag.mode.toUpperCase()}${waDiag.configured ? ' - ' + (waDiag.provider || 'Simulated') : ' - Missing Credentials'} ]`);
-            console.log(`===============================================================\n`);
-        } catch (diagErr) {
-            console.warn('Diagnostics notice:', diagErr.message);
-        }
-    })
-    .catch(err => console.error('❌ MongoDB connection error:', err.message));
+                console.log(
+                    '\n================== FLARE SERVICE DIAGNOSTICS =================='
+                );
+
+                console.log(
+                    `📧 Email Service : [ ${
+                        emailDiag.configured
+                            ? emailDiag.verified
+                                ? 'Verified (Gmail SMTP)'
+                                : 'Configured (Auth Check Failed)'
+                            : 'Not Configured'
+                    } ]`
+                );
+
+                console.log(
+                    `📱 SMS Service   : [ ${
+                        smsDiag.configured
+                            ? smsDiag.providers.join(', ')
+                            : 'Not Configured'
+                    } ]`
+                );
+
+                console.log(
+                    `📲 WhatsApp Mode : [ ${
+                        waDiag.mode.toUpperCase()
+                    }${
+                        waDiag.configured
+                            ? ' - ' + (waDiag.provider || 'Simulated')
+                            : ' - Missing Credentials'
+                    } ]`
+                );
+
+                console.log(
+                    '===============================================================\n'
+                );
+            } catch (diagErr) {
+                console.warn('Diagnostics notice:', diagErr.message);
+            }
+        })
+        .catch(err => {
+            console.error(
+                '❌ MongoDB connection error:',
+                err.message
+            );
+        });
 
     const PORT = process.env.PORT || 5000;
+
     app.listen(PORT, () => {
-        console.log(`\n===============================================================`);
+        console.log('\n===============================================================');
         console.log(`🚀 FLARE Women Safety Server running on port ${PORT}`);
         console.log(`🔗 API Base URL: http://localhost:${PORT}/api`);
-        console.log(`===============================================================\n`);
+        console.log('===============================================================\n');
     });
 }
 
