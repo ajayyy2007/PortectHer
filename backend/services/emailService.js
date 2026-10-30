@@ -1,4 +1,76 @@
 const nodemailer = require('nodemailer');
+const sendWithResend = async ({
+    to,
+    subject,
+    text,
+    html,
+    attachments = []
+}) => {
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (!apiKey) {
+        throw new Error('RESEND_API_KEY is missing from environment variables.');
+    }
+
+    const payload = {
+        from: process.env.RESEND_FROM || 'FLARE Women Safety <onboarding@resend.dev>',
+        to: [to],
+        subject,
+        text,
+        html
+    };
+
+
+    if (attachments.length > 0) {
+        payload.attachments = attachments.map((attachment) => {
+            let content;
+
+            if (attachment.content) {
+                content = Buffer.isBuffer(attachment.content)
+                    ? attachment.content.toString('base64')
+                    : Buffer.from(String(attachment.content)).toString('base64');
+            } else if (attachment.path) {
+                content = require('fs')
+                    .readFileSync(attachment.path)
+                    .toString('base64');
+            } else {
+                throw new Error(
+                    `Attachment "${attachment.filename || 'unknown'}" has no content or file path.`
+                );
+            }
+
+            return {
+                filename: attachment.filename || 'attachment',
+                content,
+                ...(attachment.contentType ? { contentType: attachment.contentType } : {}),
+                ...(attachment.cid ? { content_id: attachment.cid } : {})
+            };
+        });
+    }
+
+
+    const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+        throw new Error(
+            result.message || result.name || `Resend API error: ${response.status}`
+        );
+    }
+
+    return {
+        messageId: result.id,
+        recipient: to
+    };
+};
 
 /**
  * Validates email address format
@@ -13,8 +85,8 @@ const isValidEmail = (email) => {
  * Shared pooled nodemailer transporter
  */
 let cachedTransporter = null;
-
-const getTransporter = () => {
+const getTransporter = () =>
+ {
     const user = process.env.EMAIL_USER;
     const pass = process.env.EMAIL_PASS;
 
@@ -27,12 +99,13 @@ const getTransporter = () => {
     }
 
     cachedTransporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true, // SSL
-        auth: {
-            user: user.trim(),
-            pass: pass.trim().replace(/\s+/g, '') // App password without spaces
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Use STARTTLS
+    requireTLS: true,
+    auth: {
+        user: user.trim(),
+        pass: pass.trim().replace(/\s+/g, '')
         },
         pool: true,
         maxConnections: 3,
@@ -50,39 +123,23 @@ const getTransporter = () => {
  * Diagnostic helper to verify SMTP transporter connection
  * Does NOT leak credentials.
  */
+
 const verifyEmailConfig = async () => {
-    const transporter = getTransporter();
-    if (!transporter) {
+    if (!process.env.RESEND_API_KEY) {
         return {
             configured: false,
-            message: 'Email service is not configured: EMAIL_USER or EMAIL_PASS missing or placeholder.'
+            verified: false,
+            message: 'Email service is not configured: RESEND_API_KEY is missing.'
         };
     }
 
-    try {
-        await Promise.race([
-            transporter.verify(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP verification timeout (4s threshold)')), 4000))
-        ]);
-        return {
-            configured: true,
-            verified: true,
-            user: process.env.EMAIL_USER,
-            message: 'SMTP connection verified successfully.'
-        };
-    } catch (err) {
-        let cleanReason = err.message || 'SMTP verification failed';
-        if (err.code === 'EAUTH' || err.responseCode === 535) {
-            cleanReason = 'SMTP Authentication failed. Ensure EMAIL_USER is a valid Gmail address and EMAIL_PASS is a 16-character Gmail App Password (not your standard Google account password).';
-        }
-        return {
-            configured: true,
-            verified: false,
-            error: cleanReason,
-            code: err.code || null
-        };
-    }
+    return {
+        configured: true,
+        verified: true,
+        message: 'Resend API key is configured. Actual delivery must be tested.'
+    };
 };
+
 
 /**
  * Send Emergency SOS Email to an Emergency Contact
@@ -131,15 +188,14 @@ const sendEmergencyEmail = async ({
         };
     }
 
-    const transporter = getTransporter();
-    if (!transporter) {
-        return {
-            success: false,
-            status: 'not_configured',
-            recipient: recipientEmail,
-            error: 'Email not sent: Email provider is not configured (EMAIL_USER and EMAIL_PASS required).'
-        };
-    }
+    if (!process.env.RESEND_API_KEY) {
+    return {
+        success: false,
+        status: 'not_configured',
+        recipient: recipientEmail,
+        error: 'Email not sent: RESEND_API_KEY is missing.'
+    };
+}
 
     const timeString = timestamp || new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     const hasValidCoords = latitude !== null && latitude !== undefined && !isNaN(Number(latitude)) &&
@@ -360,20 +416,26 @@ Time: ${timeString}
     }
 
     try {
-        console.log(`[Email Service] Attempting dispatch to ${recipientEmail} via Gmail SMTP...`);
-        const info = await transporter.sendMail(mailOptions);
+        console.log(`[Email Service] Sending emergency email to ${recipientEmail} via Resend API...`);
+        const info = await sendWithResend({
+    to: recipientEmail,
+    subject: emailSubject,
+    text: textBody,
+    html: htmlBody,
+    attachments: attachments || []
+});
 
-        console.log(`✅ [Email Service] Message accepted by SMTP server for ${recipientEmail} (ID: ${info.messageId})`);
+        console.log(`✅ [Email Service] Resend accepted the email request for ${recipientEmail} (ID: ${info.messageId})`);
 
         return {
             success: true,
-            status: 'accepted_by_smtp',
+            status: 'accepted_by_resend',
             messageId: info.messageId,
             recipient: recipientEmail,
-            diagnostic: 'Message accepted by SMTP server; delivery to recipient inbox depends on the destination mail server.'
+            diagnostic: 'Resend accepted the email request; successful delivery to the recipient must be confirmed.'
         };
     } catch (err) {
-        let cleanReason = err.message || 'SMTP delivery failed';
+        let cleanReason = err.message || 'Resend email delivery failed';
         if (err.code === 'EAUTH' || err.responseCode === 535) {
             cleanReason = 'SMTP Authentication failed. Verify EMAIL_USER and Gmail App Password.';
         } else if (err.code === 'ECONNECTION' || err.code === 'ETIMEDOUT') {
@@ -404,14 +466,14 @@ const sendOTPEmail = async (recipientEmail, otp, userName = 'User') => {
         };
     }
 
-    const transporter = getTransporter();
-    if (!transporter) {
-        return {
-            success: false,
-            status: 'not_configured',
-            error: 'Email service is not configured (EMAIL_USER and EMAIL_PASS required).'
-        };
-    }
+    if (!process.env.RESEND_API_KEY) {
+    return {
+        success: false,
+        status: 'not_configured',
+        recipient: recipientEmail,
+        error: 'Email not sent: RESEND_API_KEY is missing.'
+    };
+}
 
     const mailOptions = {
         from: `"FLARE Women Safety" <${process.env.EMAIL_USER}>`,
@@ -435,7 +497,12 @@ const sendOTPEmail = async (recipientEmail, otp, userName = 'User') => {
     };
 
     try {
-        const info = await transporter.sendMail(mailOptions);
+        const info = await sendWithResend({
+    to: recipientEmail,
+    subject: mailOptions.subject,
+    text: mailOptions.text,
+    html: mailOptions.html
+});
         return {
             success: true,
             status: 'accepted_by_smtp',
